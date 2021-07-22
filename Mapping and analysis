@@ -1,0 +1,771 @@
+#===============================MAPPING AND ANALYSIS===========
+POST /_analyze
+{
+  "text": "2   guys walk into   a bar, but the third... DUCKS! !@#",
+  "analyzer": "standard"
+}
+
+POST /_analyze
+{
+  "text": "2 guys walk into   a bar, but the third... DUCKS! !@#",
+  "char_filter": [],
+  "tokenizer": "standard", 
+  "filter": ["lowercase"]
+ 
+}
+#keyword analyzer
+POST /_analyze
+{
+  "text": "2   guys walk into   a bar, but the third... DUCKS! !@#",
+  "analyzer": "keyword"
+}
+
+POST coersion_test/_doc/1
+{
+  "price": "7.59",
+  "tags": ["abc", "def"],
+  "mixed_tags": ["win", "matches"],
+  "another_mixed_tags": [4, 5, 6]
+}
+POST coersion_test/_doc/3
+{
+  "price": "7.59",
+  "tags": ["abc", "def"],
+  "mixed_tags": ["win", "4", "matches"],
+  "another_mixed_tags": [4, 5, 6, "7"],
+  "nested_array": [1, [2, 3]],
+  "nested_string_array": ["abc", ["def", "ghi"]] 
+}
+
+GET coersion_test/_mapping
+GET coersion_test/_doc/2
+
+#text array indexed as single string, note the 2nd term's offset
+POST /_analyze
+{
+  "text": ["abc", "def"],
+  "analyzer": "standard"
+}
+#this will fail though
+POST /_analyze
+{
+  "text": ["abc", ["def"]],
+  "analyzer": "standard"
+}
+
+DELETE reviews
+#create mapping. array of keywords data type is also just keyword only, notice tags
+PUT /reviews
+{
+  "mappings": {
+    "properties": {
+      "rating": {
+        "type": "float"
+      },
+      "content": {
+        "type": "text"
+      },
+      "product_id": {
+        "type": "text"
+      },
+      "tags": {
+        "type": "keyword"
+      },
+      "author": {
+        "properties": {
+          "first_name": {"type": "text"},
+          "last_name": {"type": "text"},
+          "email": {"type": "keyword"}
+        }
+      }
+    }
+  }
+}
+
+PUT /reviews/_doc/1
+{
+  "rating": 5.7,
+  "content": "okayish food",
+  "product_id": "ABC",
+  "author": {
+    "first_name": "Preethi",
+    "last_name": "Ram",
+    "email": "a@a.com"
+  },
+  "likes": [{
+    "by": "Mamtha Soni",
+    "vote": "UP"
+  },
+  {
+    "by": "Borris Johnson",
+    "vote": "UP"
+  }]
+}
+
+PUT /reviews/_doc/2
+{
+  "rating": 8.7,
+  "content": "amazing food",
+  "product_id": "Burma burma",
+  "author": {
+    "first_name": "Steve",
+    "last_name": "Carell",
+    "email": "s@c.com"
+  },
+  "tags": [
+    "thai",
+    "asian veg"
+  ],
+  "rating_history": [
+    7,
+    6,
+    9
+  ],
+  "test_float_array": [
+    7.4,
+    4.2,
+    3
+  ],
+  "likes": [
+    {
+      "by": "Voldemort",
+      "vote": "UP"
+    },
+    {
+      "by": "Aaron Bolt",
+      "vote": "UP"
+    },
+    {
+      "by": "Mamtha Venkat",
+      "vote": "UP"
+    }
+  ]
+}
+
+GET /reviews/_mapping
+GET /reviews/_mapping/field/likes.by
+GET /reviews/_doc/1
+
+
+#updates mapping, can specify existing field in mapping with same value but will fail if the new change requires any kind of reindexing exmaple product_id can't be changed from text to keyword since it has to analyse already stored docs
+PUT /reviews/_mapping
+{
+  "properties": {
+    "rating":{ "type": "float"},
+    "product_id": {"type": "keyword"},
+    "likes1": {
+      "type": "nested",
+      "properties": {
+        "by": {
+          "type": "text"
+        },
+        "vote": {
+          "type": "text"
+        }
+      }
+    }
+  }
+}
+
+#disable coerce
+PUT /reviews/_mapping
+{
+  "properties":{
+    "rating": {
+      "type": "float",
+      "coerce": false
+    }
+  }
+}
+GET /reviews/_doc/1
+
+#this will fail since coerce is disabled
+POST /reviews/_update/1
+{
+  "doc":{
+  "rating": "7.5"
+  }
+}
+
+# multi field mappings  where likes.by is used for text search and likes.by.keyword is used for sorting. Try using likes.by for sorting, it will throw error since text cannot be used for sorting
+
+# from the result, looks like each liked.by even with spaces is stored as 1 term, array of keywords data type is also just keyword only, notice tags
+GET /reviews/_search
+{
+  "query": {
+    "match": {
+      "likes.by": "mamtha"
+    }
+  },
+  "sort": [
+    {
+      "likes.by.keyword": {
+        "order": "asc"
+      }
+    }
+  ],
+  "aggs": {
+    "likers": {
+      "terms": {
+        "field": "likes.by.keyword",
+        "size": 10
+      }
+    }
+  }
+}
+
+GET /_cat/fielddata?v&fields=*
+
+GET tmdb/_search
+GET tmdb/_search
+{
+  "aggs": {
+    "max-rating": {
+      "max": {
+        "field": "vote_count"
+      }
+    }
+  }
+}
+
+GET tmdb/_mapping/field/vote_count
+PUT tmdb/_mapping
+{
+  "properties": {
+    "vote_count":{
+      "type": "long",
+      "doc_values": false
+      
+    }
+  }
+}
+
+
+#updating the shard routing identifier
+PUT custom-routing-test
+{
+  "settings": {
+    "number_of_shards": 3
+  },
+  "mappings": {
+    "_routing": {"required": true}
+  }
+}
+
+PUT custom-routing-test/_doc/1?routing=item-1
+{ "name": "suyyam", "item_id": "item-1"}
+
+#to know which shard the doc went to
+GET custom-routing-test/_search
+{
+  "explain": true
+}
+#update routing value, this didn't delete and create doc in new shard, it just creates in new shard.
+PUT custom-routing-test/_doc/1?routing=item-2
+{ "name": "suyyam", "item_id": "item-2"}
+#while searching, duplicate is returned
+GET custom-routing-test/_search?q=suyyam
+
+DELETE tmdb-reindexed
+GET tmdb/_mapping
+PUT tmdb-reindexed
+{
+  "mappings":{
+    "properties":{
+      "rating_avg":{"type": "float"}
+    }
+  }
+}
+POST _reindex
+{
+  "script": {
+    "source": """
+       if(ctx._source.vote_average > 5){
+         ctx.op = "index"
+       }else{
+         //This will delete the existing docs in dest index
+         //ctx.op = "delete" 
+         
+         // this will just skip while indexing, existing docs if any wouldn't be deleted
+         ctx.op = "noop" 
+       }
+       // Rename vote average to rating_avg
+       ctx._source.rating_avg = ctx._source.remove("vote_average")
+    """
+  }, 
+  "source": {
+    "index": "tmdb"
+  },
+  "dest":{
+    "index": "tmdb-reindexed"
+  }
+}
+
+GET tmdb-reindexed/_search
+
+#================ index templates
+
+PUT _template/access-logs
+{
+  "index_patterns": ["access-logs*"], 
+  "order": 1, 
+  "mappings": {
+    "properties": {
+      "response.success": {
+        "type": "boolean"
+      },
+      "response.code": {
+        "type": "text"
+      }
+    }
+  }
+}
+
+PUT _template/access-logs-1
+{
+  "index_patterns": ["access-logs*"], 
+  "order": 3, 
+  "aliases": {
+    "access-logs": {}
+  }, 
+  "mappings": {
+    "properties": {
+      "response.code": {
+        "type": "keyword"
+      },
+      "upstream_ip":{
+        "type": "keyword"
+      }
+    }
+  }
+}
+
+DELETE access-logs-2021-08
+PUT access-logs-2021-08 
+{
+  "aliases": {
+    "access-log-aug": {}
+  }
+
+}
+GET _template/access-logs
+GET access-logs
+
+
+#new index templates takes precedence over existing old templates
+PUT /_index_template/access-logs
+{
+  "index_patterns": "access-logs*",
+  "template":{
+        "mappings": {
+      "properties":{
+      "downstream_ip": {"type": "keyword"}
+      }
+    },
+
+    "settings":{
+      "number_of_shards": 2
+    }
+  }
+}
+
+GET _index_template/access-logs
+
+PUT _component_template/logs-component
+{
+  "template":{
+    "settings":{
+      "number_of_shards": 1
+    },
+    "mappings":{
+      "properties":{ "response.code": {"type": "keyword"},
+        "upstream_ip":{"type": "text"}
+      }
+    }
+  }
+}
+#priority will choose a template and doesn't merge the other templates, merging is achieved through composed_of
+PUT /_index_template/access-logs-new
+{
+  "priority": 1,
+  "index_patterns": "access-logs*",
+  "template":{
+    "mappings": {
+      "properties":{
+      "upstream_ip": {"type": "keyword"}
+      }
+    },
+    "settings":{
+      "number_of_shards": 2
+    }
+  },
+  "composed_of": ["logs-component"]
+}
+DELETE access-logs-2021-09
+PUT access-logs-2021-09
+GET access-logs-2021-09
+
+
+#Disable dynamic mapping
+# no inverted index is created for fields that doesn't have mapping and the field is ignore but woul dbe present in _source
+PUT /disable-dynamic-mapping-test
+{
+  "mappings": {
+    "dynamic": false,
+    "properties": {"first_name": {"type": "text"}}}
+}
+
+PUT /disable-dynamic-mapping-test/_doc/1 
+{"first_name": "Preethi", "last_name": "Ram"}
+
+GET disable-dynamic-mapping-test/_doc/1
+
+#search by non mapped field doesn't yield results because it is not indexed
+GET disable-dynamic-mapping-test/_search
+{"query": {"match": {
+  "last_name": "Ram"
+}}}
+
+PUT /disable-dynamic-mapping-test/_mapping
+{
+  
+    "dynamic": "strict",
+    "properties": {"first_name": {"type": "text"}}
+}
+
+#strict will not allow unmapped fields and fail
+PUT /disable-dynamic-mapping-test/_doc/1 
+{"first_name": "Preethi", "last_name": "Ram"}
+
+
+#dynamic templates
+DELETE /dynamic-template-test
+
+#dynamic mappings are matched in specified order and breaks when one match is found
+PUT /dynamic-template-test
+{
+  "mappings": {
+    "properties": {
+      "full_address": {
+        "type": "text",
+        "store": true
+      }
+    },
+    "dynamic_templates": [
+      {
+        "copy_to_address": {
+          "match_mapping_type": "string",
+          "path_match": "address.*",
+          "mapping": {
+            "type": "text",
+            "copy_to": "full_address"
+          }
+        }
+      },
+      {
+        "no_norm_values": {
+          "match_mapping_type": "*",
+          "mapping": {
+            "type": "{dynamic_type}",
+            "norms": false
+          }
+        }
+      },
+      {
+        "string_with_only_text": {
+          "match_mapping_type": "string",
+          "match": "*",
+          "unmatch": "*keyword",
+          "mapping": {
+            "type": "text"
+          }
+        }
+      },
+      {
+        "string_with_only_keyword": {
+          "match_mapping_type": "string",
+          "match": "*keyword",
+          "mapping": {
+            "type": "keyword"
+          }
+        }
+      }
+    ]
+  }
+}
+
+PUT /dynamic-template-test/_doc/1
+{
+  "name": "Preethi",
+  "course_keyword": "Btech",
+  "address": {
+    "street": "elango street",
+    "nagar": "prakash nagar",
+    "pincode": "602024"
+  }
+}
+
+GET dynamic-template-test/_mapping
+GET /dynamic-template-test/_search
+{
+  "stored_fields": ["full_address"]
+}
+
+#Analyzers
+GET tmdb/_settings
+
+DELETE products-using-analyzer
+PUT products-using-analyzer
+{
+  "mappings":{
+    "properties":{
+      "description": {
+        "type": "text",
+        "analyzer": "remove_english_stop_words"
+      },
+      "name":{
+        "type": "text",
+        "analyzer": "english"
+      }
+    }
+  },
+  "settings": {
+    "analysis": {
+      "analyzer": {
+        "remove_english_stop_words":{
+          "type": "standard",
+          "stopwords": "_english_"
+        }
+      }
+    }
+  }
+  }
+POST products-using-analyzer/_doc/1
+{
+  "name": "Wolf of the wall street",
+  "description": "This is based on John's life"
+}
+
+GET products-using-analyzer/_search
+{
+  "query": {
+    "match": {
+      "name": "Wolf wall"
+    }
+  }
+}
+
+#testing analyzer
+POST _analyze
+{
+  "text": "This is based on the John's life",
+  "analyzer": "standard"
+}
+
+POST products-using-analyzer/_analyze
+{
+  "text": "This is based on the John's life",
+  "field": "description"
+}
+
+POST products-using-analyzer/_analyze
+{
+  "text": "This is based on the John's life",
+  "field": "name"
+}
+
+
+POST _analyze
+{
+  "char_filter": ["html_strip"], 
+  "text": "<bold>I'm a strong player, I'm playing guitar now. He jumped in joy </bold>",
+  "tokenizer": "standard"
+  , "filter": ["lowercase", "stemmer", "stop"]
+}
+
+POST _analyze
+{
+  "text": "I'm a strong player, I'm playing guitar now. He jumped in joy. Les Misérables",
+  "char_filter": [
+    {
+      "type": "mapping",
+      "mappings": [
+        "'=>"
+      ]
+    }
+  ],
+  "tokenizer": "standard",
+  "filter": [
+    "asciifolding",
+    {
+      "type": "edge_ngram",
+      "min_gram": 2,
+      "max_gram": 10
+    }
+  ]
+}
+
+POST _analyze
+{
+  "text": "I'm a strong player, I'm playing guitar now. He jumped in joy",
+  "tokenizer": {
+    "type": "edge_ngram",
+    "min_gram": 2,
+    "max_gram": 10
+  }
+}
+
+DELETE movies-using-custom-analyzer
+PUT movies-using-custom-analyzer
+{
+  "settings": {
+    "analysis": {
+      "char_filter": {
+        "remove_apostrophe": {
+          "type": "mapping",
+          "mappings": [
+            "'=>"
+          ]
+        }
+      },
+      "filter": {
+        "my-edge-ngram-token-filter": {
+          "type": "edge_ngram",
+          "min_gram": 2,
+          "max_gram": 10
+        }
+      },
+      "analyzer": {
+        "my_custom_analyzer": {
+          "type": "custom",
+          "char_filter": [
+            "html_strip",
+            "remove_apostrophe"
+          ],
+          "tokenizer": "standard",
+          "filter": [
+            "asciifolding",
+            "lowercase",
+            "stop",
+            "my-edge-ngram-token-filter"
+          ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "title": {
+        "type": "text",
+        "analyzer": "my_custom_analyzer"
+      },
+      "overview": {
+        "type": "text",
+        "analyzer": "my_custom_analyzer"
+      },
+      "directors": {
+        "type": "keyword"
+      }
+    }
+  }
+}
+GET tmdb/_search
+POST movies-using-custom-analyzer/_bulk
+{"index":{"_id":1}}
+{"title":"Les Misérables","overview":"It's summertime, and Greg Heffley is looking forward to playing video games and spending time with his friends. However, Greg's dad has other plans"}
+{"index":{"_id":2}}
+{"title":"<b>Gangster Squad</b>","overview":"Los Angeles, 1949. Ruthless, Brooklyn-born mob king Mickey Cohen runs the show in this town, reaping the ill-gotten gains from the drugs, the guns, the prostitutes and — if he has his way — every wire bet placed west of Chicago. And he does it all with the protection of not only his own paid goons, but also the police and the politicians who are under his control. It’s enough to intimidate even the bravest, street-hardened cop… except, perhaps, for the small, secret crew of LAPD outsiders led by Sgt. John O’Mara and Jerry Wooters who come together to try to tear Cohen’s world apart."}
+
+#this shouldn't have written any results since gang is not present in overivew for both the docs but it did due to edge ngram used in search analyzer too
+POST movies-using-custom-analyzer/_search
+{"query":{"match":{"overview":"Gang"}}}
+
+#this returns empty because stop words are removed
+POST movies-using-custom-analyzer/_search
+{"query":{"match":{"overview":"the"}}}
+
+
+#gains would be split to ga and above search term Gang would also be split g, ga, gan and the overview is matched. Diff search analyzer should be used
+POST movies-using-custom-analyzer/_analyze
+{
+  "text": "Los Angeles, 1949. Ruthless, Brooklyn-born mob king Mickey Cohen runs the show in this town, reaping the ill-gotten gains from the drugs, the guns, the prostitutes and — if he has his way — every wire bet placed west of Chicago. And he does it all with the protection of not only his own paid goons, but also the police and the politicians who are under his control. It’s enough to intimidate even the bravest, street-hardened cop… except, perhaps, for the small, secret crew of LAPD outsiders led by Sgt. John O’Mara and Jerry Wooters who come together to try to tear Cohen’s world apart."
+  , "field": "overview"
+}
+
+GET movies-using-custom-analyzer/_settings
+
+#close index to update analyzer
+POST movies-using-custom-analyzer/_close
+
+#adds new analyzer and removes stop from existing analyzer
+PUT movies-using-custom-analyzer/_settings
+{
+  "analysis": {
+    "analyzer": {
+      "my_custom_search_analyzer": {
+        "type": "custom",
+        "char_filter": [
+          "html_strip",
+          "remove_apostrophe"
+        ],
+        "tokenizer": "standard",
+        "filter": [
+          "asciifolding",
+          "lowercase"
+        ]
+      },
+      "my_custom_analyzer": {
+        "type": "custom",
+        "char_filter": [
+          "html_strip",
+          "remove_apostrophe"
+        ],
+        "tokenizer": "standard",
+        "filter": [
+          "asciifolding",
+          "lowercase"
+        ]
+      }
+    }
+  }
+}
+
+POST movies-using-custom-analyzer/_open
+
+PUT movies-using-custom-analyzer/_mapping
+{
+  "properties": {
+    "title": {
+      "type": "text",
+      "analyzer": "my_custom_analyzer",
+      "search_analyzer": "my_custom_search_analyzer"
+    },
+    "overview": {
+      "type": "text",
+      "analyzer": "my_custom_analyzer",
+      "search_analyzer": "my_custom_search_analyzer"
+    }
+  }
+}
+
+#search again, this doesn't return docs as expected without reindex because we have changed search analyzer
+POST movies-using-custom-analyzer/_search
+{"query":{"match":{"overview":"Gang"}}}
+
+#search again, this still didn't work because existing data isn't reindexed
+POST movies-using-custom-analyzer/_search
+{"query":{"match":{"overview":"the"}}}
+
+#reindexes document
+POST movies-using-custom-analyzer/_update_by_query
+
+
+GET _cat/shards/tmdb-new
+#reindexes doc asynchronously
+POST tmdb-new/_update_by_query?wait_for_completion=false
+
+GET _tasks/JclyIaT5REyvMyJ_eU1c5g:109220
+
+#now the size would have doubled after update
+#merges segments
+POST tmdb-new/_forcemerge
