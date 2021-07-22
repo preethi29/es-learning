@@ -1,7 +1,8 @@
 GET _cluster/health
 GET _cat/indices?v
 GET _cat/nodes?v
-GET _cat/shards
+GET _cat/shards?v
+GET _cat/shards/tmdb-new
 GET _cat/recovery
 
 #splitting
@@ -12,13 +13,17 @@ PUT tmdb-new/_settings
   }
 }
 
-PUT tmdb-new/_split/tmdb-scaled-3
+PUT tmdb-new/_split/tmdb-split-2
 {
   "settings":{
     "index.number_of_shards": 4
   }
 }
 
+#reindexes
+POST tmdb-new/_update_by_query
+#merges segments
+POST tmdb-new/_forcemerge
 DELETE tmdb-scaled-2
 
 GET tmdb-scaled/_settings
@@ -266,3 +271,4 @@ POST products/_bulk
 { "delete": { "_id": 1}}
 
 GET products/_doc/7
+
